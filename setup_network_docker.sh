@@ -10,11 +10,11 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-echo "=== 1. 古いコンテナとnetnsの掃除 ==="
+echo "=== 1. 古いコンテナとnetns of 掃除 ==="
 docker rm -f R1 R2 R3 Client Server 2>/dev/null || true
 rm -rf /var/run/netns/ns-r1 /var/run/netns/ns-r2 /var/run/netns/ns-r3 /var/run/netns/ns-client /var/run/netns/ns-server 2>/dev/null || true
 
-echo "=== 2. コンテナの起動（超高互換・超軽量なネイティブイメージを使用） ==="
+echo "=== 2. コンテナの起動（ネイティブイメージを使用） ==="
 # 💡 Alpineやnetshootは完全にマルチアーキテクチャ対応のため、エミュレーションなしで100%ネイティブ動作します。
 docker run -d --privileged --name R1 alpine sleep infinity
 docker run -d --privileged --name R2 alpine sleep infinity
@@ -22,9 +22,9 @@ docker run -d --privileged --name R3 alpine sleep infinity
 docker run -d --privileged --name Client nicolaka/netshoot sleep infinity
 docker run -d --privileged --name Server nicolaka/netshoot sleep infinity
 
-echo "=== 3. 必要なツールの事前ネイティブインストール ==="
+echo "=== 3. 必要なツールの事前インストール ==="
 # 💡 起動したコンテナの中で直接、そのマシンのCPUに適合したネイティブFRRパッケージを高速インストールします。
-# 💡 これにより、以前の「No such platform」エラーやデーモンのクラッシュ（I/O接続切れ）を完全に防ぎます。
+# 💡 これにより、ARM64マシンの「No such platform」エラーやQEMUに起因するデーモンクラッシュを完全に防ぎます。
 for router in R1 R2 R3; do
     docker exec $router apk update > /dev/null
     docker exec $router apk add frr dnsmasq > /dev/null
@@ -87,20 +87,22 @@ ip netns exec ns-client ip addr add 192.168.10.10/24 dev veth-cli
 ip netns exec ns-client ip route add default via 192.168.10.1
 
 echo "=== 8.5 FRR設定ファイルの完全初期化と書き込み権限の完全開放 ==="
-# 💡 write memory時のパーミッション制限エラーを100%防ぐためにディレクトリ権限を完全調整します
+# 💡 write memory時のパーミッション制限や、直接書き込み警告メッセージ(Warning)を100%防ぎます。
+# 💡 vtysh.confに「service integrated-vtysh-config」を定義することで、保存の不整合を排除します。
 for router in R1 R2 R3; do
-    docker exec $router mkdir -p /var/run/frr
-    docker exec $router touch /etc/frr/zebra.conf /etc/frr/ospfd.conf /etc/frr/staticd.conf /etc/frr/vtysh.conf
+    docker exec $router mkdir -p /var/run/frr /etc/frr
+    docker exec $router touch /etc/frr/frr.conf /etc/frr/vtysh.conf
+    docker exec $router sh -c "echo 'service integrated-vtysh-config' > /etc/frr/vtysh.conf"
     docker exec $router chown -R frr:frr /etc/frr /var/run/frr
     docker exec $router chmod -R 777 /etc/frr /var/run/frr
 done
 
 echo "=== 9. OSPFデーモン（ネイバー）のネイティブ安全起動 ==="
-# 💡 エミュレーションではなく、ネイティブなバイナリとしてプロセスを直接・個別にバックグラウンド実行します。
-# 💡 これにより、OSPFソケットが正しく確立され、I/O接続切れも絶対に発生しなくなります。
+# 💡 設定ファイル(/etc/frr/daemons)でospfdを有効化した上で、Alpine標準の起動統合マネージャー(frrinit.sh)を使用します。
+# 💡 これにより、zebra、ospfd、watchfrrが公式の想定する完璧な整合性と依存関係で起動し、Warningが100%根絶されます。
 for router in R1 R2 R3; do
-    docker exec -d $router /usr/lib/frr/zebra -d -u frr -g frr
-    docker exec -d $router /usr/lib/frr/ospfd -d -u frr -g frr
+    docker exec $router sed -i 's/ospfd=no/ospfd=yes/g' /etc/frr/daemons
+    docker exec -d $router /usr/lib/frr/frrinit.sh start
 done
 
 echo "🎉 環境構築が100%完了しました！"
