@@ -24,7 +24,7 @@ docker run -d --privileged --name Server nicolaka/netshoot sleep infinity
 
 echo "=== 3. 必要なツールの事前インストール ==="
 # 💡 起動したすべてのコンテナの中で直接、そのマシンのCPUに適合したバイナリを高速インストールします。
-# 💡 これにより、後半の演習で使用する DHCP（dhclient）や DNS（dnsmasq）がないエラーを完全に防止します。
+# 💡 これにより、後半の演習で使用する DHCP や DNS（dnsmasq）がないエラーを完全に防止します。
 for router in R1 R2 R3; do
     docker exec $router apk update > /dev/null
     docker exec $router apk add frr dnsmasq > /dev/null
@@ -32,7 +32,8 @@ done
 
 echo ">> Server/Client の追加ツールをインストール中..."
 docker exec Server apk update > /dev/null && docker exec Server apk add dnsmasq > /dev/null
-docker exec Client apk update > /dev/null && docker exec Client apk add dhclient > /dev/null
+# 💡 Alpine Linuxにおいて標準かつ軽量な「dhcpcd」クライアントを導入し、パッケージ未検出エラーを根絶します。
+docker exec Client apk update > /dev/null && docker exec Client apk add dhcpcd > /dev/null
 
 echo "=== 4. 外部ネットワークの切断 ==="
 for container in R1 R2 R3 Client Server; do
@@ -85,7 +86,7 @@ ip netns exec ns-r1 sysctl -w net.ipv4.ip_forward=1 > /dev/null
 ip netns exec ns-r2 sysctl -w net.ipv4.ip_forward=1 > /dev/null
 ip netns exec ns-r3 sysctl -w net.ipv4.ip_forward=1 > /dev/null
 
-echo "=== 8. Clientの初期ネットワーク設定（手動設定を模擬） ==="
+echo "=== 8. Client의 初期ネットワーク設定（手動設定を模擬） ==="
 # 💡 講義をスムーズに進めるため、あらかじめClientにIPとゲートウェイを仕込みます
 ip netns exec ns-client ip addr add 192.168.10.10/24 dev veth-cli
 ip netns exec ns-client ip route add default via 192.168.10.1
