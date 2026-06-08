@@ -10,7 +10,7 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-echo "=== 1. 古いコンテナとnetns of 掃除 ==="
+echo "=== 1. 古いコンテナとnetnsの掃除 ==="
 docker rm -f R1 R2 R3 Client Server 2>/dev/null || true
 rm -rf /var/run/netns/ns-r1 /var/run/netns/ns-r2 /var/run/netns/ns-r3 /var/run/netns/ns-client /var/run/netns/ns-server 2>/dev/null || true
 
@@ -23,12 +23,16 @@ docker run -d --privileged --name Client nicolaka/netshoot sleep infinity
 docker run -d --privileged --name Server nicolaka/netshoot sleep infinity
 
 echo "=== 3. 必要なツールの事前インストール ==="
-# 💡 起動したコンテナの中で直接、そのマシンのCPUに適合したネイティブFRRパッケージを高速インストールします。
-# 💡 これにより、ARM64マシンの「No such platform」エラーやQEMUに起因するデーモンクラッシュを完全に防ぎます。
+# 💡 起動したすべてのコンテナの中で直接、そのマシンのCPUに適合したバイナリを高速インストールします。
+# 💡 これにより、後半の演習で使用する DHCP（dhclient）や DNS（dnsmasq）がないエラーを完全に防止します。
 for router in R1 R2 R3; do
     docker exec $router apk update > /dev/null
     docker exec $router apk add frr dnsmasq > /dev/null
 done
+
+echo ">> Server/Client の追加ツールをインストール中..."
+docker exec Server apk update > /dev/null && docker exec Server apk add dnsmasq > /dev/null
+docker exec Client apk update > /dev/null && docker exec Client apk add dhclient > /dev/null
 
 echo "=== 4. 外部ネットワークの切断 ==="
 for container in R1 R2 R3 Client Server; do
